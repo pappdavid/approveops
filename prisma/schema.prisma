@@ -8,6 +8,12 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // Core user model
 model User {
   id        String   @id @default(cuid())
@@ -16,5 +22,36 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // TODO: add ApproveOps-specific relations here
+  approvalsCreated ApprovalRequest[] @relation("ApprovalCreatedBy")
+  approvalsDecided ApprovalRequest[] @relation("ApprovalDecidedBy")
+  securityEvents   SecurityEvent[]
+}
+
+model ApprovalRequest {
+  id          String         @id @default(cuid())
+  title       String
+  description String?
+  status      ApprovalStatus @default(PENDING)
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("ApprovalCreatedBy", fields: [createdById], references: [id])
+
+  decidedAt       DateTime?
+  decidedById     String?
+  decidedBy       User?   @relation("ApprovalDecidedBy", fields: [decidedById], references: [id])
+  decisionReason  String?
+}
+
+model SecurityEvent {
+  id        String   @id @default(cuid())
+  type      String
+  severity  String
+  details   Json
+  createdAt DateTime @default(now())
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id])
 }

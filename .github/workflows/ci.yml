@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "copilot/**", "codex/**"]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
@@ -32,3 +32,5 @@ jobs:
           CLERK_SECRET_KEY: "sk_test_placeholder"
           DATABASE_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
           DIRECT_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
+          OPENAI_API_KEY: "sk-placeholder"
+
