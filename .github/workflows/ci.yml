@@ -16,6 +16,8 @@ jobs:
           node-version: "20"
       - name: Install
         run: npm install --ignore-scripts
+      - name: Generate Prisma client
+        run: npx prisma generate
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
