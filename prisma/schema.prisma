@@ -33,6 +33,9 @@ model ApprovalRequest {
   description String?
   status      ApprovalStatus @default(PENDING)
   metadata    Json?
+  riskLevel   String         @default("low")
+  riskReasons Json           @default("[]")
+  riskSummary String         @default("Low-risk read-only action.")
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -43,6 +46,8 @@ model ApprovalRequest {
   decidedById     String?
   decidedBy       User?   @relation("ApprovalDecidedBy", fields: [decidedById], references: [id])
   decisionReason  String?
+
+  @@index([createdById, status, createdAt])
 }
 
 model SecurityEvent {

@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createApprovalRequest, decideApprovalRequest, listApprovalRequests } from "../../../lib/approvals";
-import { scanPromptForInjection } from "../../../lib/prompt-guard";
-import { trackSecurityEvent } from "../../../lib/analytics";
-import { runAiActionWrapped } from "../../../lib/ai";
 
 function verifyMcpSecret(request: NextRequest): boolean {
   const secret = process.env.MCP_API_SECRET;
@@ -42,16 +39,6 @@ const DecideApprovalToolInputSchema = z.object({
   requestId: z.string().min(1),
   decision: z.enum(["approve", "reject"]),
   reason: z.string().max(2000).optional(),
-  actor: ActorSchema,
-});
-
-const PromptScanToolInputSchema = z.object({
-  prompt: z.string().min(1).max(20000),
-  actor: ActorSchema,
-});
-
-const RiskAssessToolInputSchema = z.object({
-  prompt: z.string().min(1).max(20000),
   actor: ActorSchema,
 });
 
@@ -117,42 +104,6 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json({ ok: true, id: envelope.id, result });
       }
-      case "prompt.scan": {
-        const parsed = PromptScanToolInputSchema.parse(input);
-        const actor = getActor(parsed);
-        const result = scanPromptForInjection(parsed.prompt);
-        if (!result.safe) {
-          await trackSecurityEvent({
-            type: "prompt_injection_detected",
-            severity: "high",
-            userId: actor.id,
-            details: { detectedPatterns: result.detectedPatterns },
-          });
-        } else {
-          await trackSecurityEvent({
-            type: "mcp_scan_completed",
-            severity: "low",
-            userId: actor.id,
-            details: { safe: true },
-          });
-        }
-        return NextResponse.json({ ok: true, id: envelope.id, result });
-      }
-      case "ai.riskAssess": {
-        const parsed = RiskAssessToolInputSchema.parse(input);
-        const actor = getActor(parsed);
-        const result = await runAiActionWrapped({
-          userMessage: parsed.prompt,
-          context: { userId: actor.id },
-        });
-        await trackSecurityEvent({
-          type: "agent_risk_assessed",
-          severity: "low",
-          userId: actor.id,
-          details: { model: result.model },
-        });
-        return NextResponse.json({ ok: true, id: envelope.id, result });
-      }
       default:
         return NextResponse.json({ ok: false, id: envelope.id, error: `Unknown tool: ${tool}` }, { status: 404 });
     }
@@ -180,7 +131,7 @@ export async function GET() {
       },
       {
         name: "approvals.create",
-        description: "Create an approval request.",
+        description: "Submit an agent action, classify deterministic risk, and create a pending approval request.",
         inputSchema: {
           type: "object",
           properties: {
@@ -193,7 +144,7 @@ export async function GET() {
       },
       {
         name: "approvals.decide",
-        description: "Approve or reject an existing request.",
+        description: "Approve or reject one of the current actor's pending approval requests and write an audit event.",
         inputSchema: {
           type: "object",
           properties: {
@@ -203,30 +154,6 @@ export async function GET() {
             actor: { type: "object", properties: { id: { type: "string" }, email: { type: "string" } } },
           },
           required: ["requestId", "decision"],
-        },
-      },
-      {
-        name: "prompt.scan",
-        description: "Scan a prompt for common prompt-injection patterns.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            prompt: { type: "string" },
-            actor: { type: "object", properties: { id: { type: "string" }, email: { type: "string" } } },
-          },
-          required: ["prompt"],
-        },
-      },
-      {
-        name: "ai.riskAssess",
-        description: "Run an AI risk assessment over a prompt or change request.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            prompt: { type: "string" },
-            actor: { type: "object", properties: { id: { type: "string" }, email: { type: "string" } } },
-          },
-          required: ["prompt"],
         },
       },
     ],

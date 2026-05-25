@@ -5,6 +5,9 @@ export type SecurityEventType =
   | "prompt_injection_detected"
   | "mcp_scan_completed"
   | "agent_risk_assessed"
+  | "approval_submitted"
+  | "approval_approved"
+  | "approval_rejected"
   | "auth_failure";
 
 export interface SecurityEvent {
