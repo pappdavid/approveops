@@ -17,9 +17,9 @@ jobs:
         with:
           node-version: "20"
       - name: Install
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
       - name: Generate Prisma client
-        run: npx prisma generate
+        run: npm run db:generate:ci
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
@@ -33,4 +33,3 @@ jobs:
           DATABASE_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
           DIRECT_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
           OPENAI_API_KEY: "sk-placeholder"
-

@@ -29,19 +29,16 @@ export async function createApprovalRequest(params: {
   });
 }
 
-export async function listApprovalRequests() {
+export async function listApprovalRequests(params: { clerkUserId: string }) {
   return prisma.approvalRequest.findMany({
+    where: { createdBy: { clerkId: params.clerkUserId } },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
 }
 
 export async function listMyApprovalRequests(params: { clerkUserId: string }) {
-  return prisma.approvalRequest.findMany({
-    where: { createdBy: { clerkId: params.clerkUserId } },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  return listApprovalRequests(params);
 }
 
 export const DecideApprovalSchema = z.object({
@@ -62,7 +59,7 @@ export async function decideApprovalRequest(params: {
   const nextStatus: ApprovalStatus = input.decision === "approve" ? "APPROVED" : "REJECTED";
 
   const updated = await prisma.approvalRequest.updateMany({
-    where: { id: input.requestId, status: "PENDING" },
+    where: { id: input.requestId, status: "PENDING", createdById: decidingUser.id },
     data: {
       status: nextStatus,
       decidedAt: new Date(),
@@ -75,5 +72,7 @@ export async function decideApprovalRequest(params: {
     throw new Error("Approval request not found or already decided.");
   }
 
-  return prisma.approvalRequest.findUniqueOrThrow({ where: { id: input.requestId } });
+  return prisma.approvalRequest.findFirstOrThrow({
+    where: { id: input.requestId, createdById: decidingUser.id },
+  });
 }

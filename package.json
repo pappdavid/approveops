@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
-    "db:generate": "prisma generate",
-    "postinstall": "prisma generate"
+    "db:generate": "node scripts/ci/prisma-generate.mjs",
+    "db:generate:ci": "node scripts/ci/prisma-generate.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^5.7.5",

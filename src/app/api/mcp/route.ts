@@ -34,6 +34,10 @@ const CreateApprovalToolInputSchema = z.object({
   actor: ActorSchema,
 });
 
+const ListApprovalToolInputSchema = z.object({
+  actor: ActorSchema,
+});
+
 const DecideApprovalToolInputSchema = z.object({
   requestId: z.string().min(1),
   decision: z.enum(["approve", "reject"]),
@@ -86,7 +90,9 @@ export async function POST(request: NextRequest) {
   try {
     switch (tool) {
       case "approvals.list": {
-        const result = await listApprovalRequests();
+        const parsed = ListApprovalToolInputSchema.parse(input);
+        const actor = getActor(parsed);
+        const result = await listApprovalRequests({ clerkUserId: actor.id });
         return NextResponse.json({ ok: true, id: envelope.id, result });
       }
       case "approvals.create": {
@@ -163,8 +169,14 @@ export async function GET() {
     tools: [
       {
         name: "approvals.list",
-        description: "List recent approval requests.",
-        inputSchema: { type: "object", properties: {} },
+        description: "List recent approval requests for the current actor.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            actor: { type: "object", properties: { id: { type: "string" }, email: { type: "string" } } },
+          },
+          required: ["actor"],
+        },
       },
       {
         name: "approvals.create",

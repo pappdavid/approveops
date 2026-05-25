@@ -58,7 +58,7 @@ export default async function DashboardPage() {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
-  const approvals = await listApprovalRequests();
+  const approvals = await listApprovalRequests({ clerkUserId: user.id });
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-8">
