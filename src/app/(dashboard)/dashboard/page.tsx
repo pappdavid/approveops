@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   createApprovalRequest,
   decideApprovalRequest,
+  listApprovalAuditEvents,
   listApprovalRequests,
 } from "../../../lib/approvals";
 import { SubmitButton } from "./submit-button";
@@ -40,6 +41,32 @@ function statusClassName(status: string) {
     default:
       return "border-slate-300 bg-slate-50 text-slate-700";
   }
+}
+
+function eventLabel(type: string) {
+  switch (type) {
+    case "approval_submitted":
+      return "Submitted";
+    case "approval_approved":
+      return "Approved";
+    case "approval_rejected":
+      return "Rejected";
+    default:
+      return type.replace(/_/g, " ");
+  }
+}
+
+function getAuditDetails(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { title: null as string | null, decision: null as string | null, reason: null as string | null };
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    title: typeof record.title === "string" ? record.title : null,
+    decision: typeof record.decision === "string" ? record.decision : null,
+    reason: typeof record.reason === "string" ? record.reason : null,
+  };
 }
 
 async function createApprovalAction(formData: FormData) {
@@ -84,14 +111,26 @@ async function decideApprovalAction(formData: FormData) {
 }
 
 export default async function DashboardPage() {
-  const user = await currentUser();
+  let user;
+  try {
+    user = await currentUser();
+  } catch {
+    redirect("/sign-in");
+  }
   if (!user) redirect("/sign-in");
 
   let approvals: Awaited<ReturnType<typeof listApprovalRequests>> = [];
+  let auditEvents: Awaited<ReturnType<typeof listApprovalAuditEvents>> = [];
   let loadError: string | null = null;
 
   try {
-    approvals = await listApprovalRequests({ clerkUserId: user.id });
+    const email = getPrimaryEmail(user);
+    if (!email) throw new Error("User email is required.");
+
+    [approvals, auditEvents] = await Promise.all([
+      listApprovalRequests({ clerkUserId: user.id }),
+      listApprovalAuditEvents({ clerkUser: { id: user.id, email } }),
+    ]);
   } catch (error) {
     loadError = error instanceof Error ? error.message : "Unable to load approval requests.";
   }
@@ -244,6 +283,59 @@ export default async function DashboardPage() {
                       {req.decisionReason ? ` • ${req.decisionReason}` : ""}
                     </p>
                   ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">Audit log</h2>
+          <span className="text-xs text-muted-foreground">{auditEvents.length} events shown</span>
+        </div>
+        {loadError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            Audit log could not be loaded. {loadError}
+          </div>
+        ) : auditEvents.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+            No audit events yet. Submit and decide an approval request to inspect the lifecycle here.
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {auditEvents.map((event) => {
+              const details = getAuditDetails(event.details);
+
+              return (
+                <li key={event.id} className="rounded-lg border bg-card p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">{eventLabel(event.type)}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {details.title ?? "Approval request activity"}
+                      </p>
+                      {details.reason ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Note: {details.reason}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {details.decision ? (
+                        <span
+                          className={`rounded-full border px-2 py-1 text-xs ${statusClassName(
+                            details.decision === "approve" ? "APPROVED" : "REJECTED"
+                          )}`}
+                        >
+                          {details.decision === "approve" ? "Approved" : "Rejected"}
+                        </span>
+                      ) : null}
+                      <span className={`rounded-full border px-2 py-1 text-xs capitalize ${riskClassName(event.severity)}`}>
+                        {event.severity}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">{event.createdAt.toLocaleString()}</p>
                 </li>
               );
             })}

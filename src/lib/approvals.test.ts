@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createApprovalRequest, decideApprovalRequest, listApprovalRequests } from "./approvals";
+import {
+  createApprovalRequest,
+  decideApprovalRequest,
+  listApprovalAuditEvents,
+  listApprovalRequests,
+} from "./approvals";
 
 const prismaMock = vi.hoisted(() => ({
   approvalRequest: {
@@ -11,6 +16,7 @@ const prismaMock = vi.hoisted(() => ({
   },
   securityEvent: {
     create: vi.fn(),
+    findMany: vi.fn(),
   },
 }));
 
@@ -68,6 +74,20 @@ describe("approval lifecycle", () => {
     expect(prismaMock.approvalRequest.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { createdBy: { clerkId: "user_1" } },
+      })
+    );
+  });
+
+  it("lists only the current user's approval audit events", async () => {
+    prismaMock.securityEvent.findMany.mockResolvedValue([]);
+
+    await listApprovalAuditEvents({
+      clerkUser: { id: "user_1", email: "user@example.com" },
+    });
+
+    expect(prismaMock.securityEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "db_user_1" },
       })
     );
   });

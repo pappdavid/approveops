@@ -34,6 +34,18 @@ async function recordApprovalAuditEvent(params: {
   });
 }
 
+export async function listApprovalAuditEvents(params: {
+  clerkUser: { id: string; email: string };
+}) {
+  const user = await upsertUserFromClerk(params.clerkUser);
+
+  return prisma.securityEvent.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+}
+
 export async function createApprovalRequest(params: {
   clerkUser: { id: string; email: string };
   input: CreateApprovalRequestInput;
@@ -63,6 +75,7 @@ export async function createApprovalRequest(params: {
     severity: auditSeverityForRisk(risk.riskLevel),
     details: {
       approvalRequestId: approval.id,
+      title: approval.title,
       status: approval.status,
       riskLevel: risk.riskLevel,
       riskReasons: risk.reasons,
@@ -126,6 +139,7 @@ export async function decideApprovalRequest(params: {
     severity: auditSeverityForRisk(approval.riskLevel),
     details: {
       approvalRequestId: approval.id,
+      title: approval.title,
       decision: input.decision,
       status: approval.status,
       reason: input.reason ?? null,
