@@ -41,8 +41,9 @@ jobs:
         run: npm run build
         env: &runtime-env
           SKIP_ENV_VALIDATION: "1"
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_placeholder"
-          CLERK_SECRET_KEY: "sk_test_placeholder"
+          CLERK_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmstY2kuY2xlcmsuYWNjb3VudHMuZGV2JA"
+          CLERK_SECRET_KEY: "sk_test_ci_only_not_a_real_secret_000000000000"
           DATABASE_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
           DIRECT_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
           OPENAI_API_KEY: "sk-placeholder"
