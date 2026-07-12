@@ -102,3 +102,9 @@ jobs:
             throw new Error(`Unexpected unknown-tool response: ${JSON.stringify(unknown)}`);
           }
           NODE
+
+      - name: Documented live demo availability
+        run: |
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            https://approveops.vercel.app/api/mcp > /tmp/live-mcp.json
+          node -e "const fs=require('fs'); const body=JSON.parse(fs.readFileSync('/tmp/live-mcp.json','utf8')); if (!Array.isArray(body.tools) || body.tools.length === 0) throw new Error('Live demo did not return a tools manifest');"
