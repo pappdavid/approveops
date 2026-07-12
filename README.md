@@ -2,199 +2,138 @@
 
 # ApproveOps
 
-**Human-in-the-loop approval gate for AI agent actions**
+**Human approval queue and deterministic risk-classification prototype for agent actions**
 
-[![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=next.js&logoColor=white)](https://nextjs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Clerk](https://img.shields.io/badge/Auth-Clerk-6C47FF?logo=clerk&logoColor=white)](https://clerk.com)
-[![Prisma](https://img.shields.io/badge/ORM-Prisma-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
-[![Supabase](https://img.shields.io/badge/DB-Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
-[![Tailwind CSS](https://img.shields.io/badge/CSS-Tailwind-06B6D4?logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
-[![Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
-
-**[Live Demo →](https://approveops.vercel.app)**
+[Live demo](https://approveops.vercel.app)
 
 </div>
 
----
+## Scope
 
-## What It Does
+ApproveOps accepts an action description, assigns a deterministic risk level, stores a pending approval request, and lets the owning user approve or reject it with an optional reason.
 
-ApproveOps puts a human in the loop for any action an AI agent wants to take. An agent submits an action, the deterministic risk classifier immediately assigns a risk level, the request lands in a pending queue, and a human approves or rejects it — with a full audit trail for every decision.
+It provides:
 
-No ML inference. No black boxes. Deterministic classification, instant results.
+- action submission and risk classification
+- pending, approved, and rejected request states
+- per-user approval queues
+- guarded one-time decisions on pending requests
+- security events for submission and decisions
+- dashboard and bearer-authenticated tool-style HTTP access
 
----
+Submitting an action to ApproveOps does not automatically stop an external agent. The calling system must wait for and enforce the recorded decision.
 
-## Approval Flow
+## Risk classification
 
-```mermaid
-sequenceDiagram
-    participant Agent as AI Agent
-    participant API as ApproveOps API
-    participant DB as Supabase Postgres
-    participant Human as Human Reviewer
-    participant Audit as Audit Log
+The current classifier evaluates the action title and description using transparent rules:
 
-    Agent->>API: POST /api/mcp {tool: "approvals.create"}
-    API->>API: risk-classifier.ts<br/>→ low/medium/high/critical
-    API->>DB: INSERT ApprovalRequest (PENDING)
-    API-->>Agent: {id, status: PENDING, riskLevel}
-
-    Human->>API: GET /dashboard (list pending)
-    API->>DB: SELECT WHERE status=PENDING
-    DB-->>Human: Pending requests with risk details
-
-    Human->>API: POST approve / reject + note
-    API->>DB: UPDATE status, decidedAt, decisionReason
-    API->>Audit: SecurityEvent {approval_approved / rejected}
-    API-->>Human: Updated request
-```
-
----
-
-## Risk Classification
-
-ApproveOps classifies every action deterministically — keyword and pattern matching on the action title and description:
-
-```
-Risk Levels
-├── critical  → production database operations, credential changes, force pushes
-├── high      → production deployments, user data exports, infrastructure changes
-├── medium    → staging changes, schema migrations, external API calls
-└── low       → read-only operations, local tests, non-destructive commands
-```
-
----
-
-## Data Model
-
-```mermaid
-erDiagram
-    User ||--o{ ApprovalRequest : "creates / decides"
-    User ||--o{ SecurityEvent : triggers
-
-    User {
-        string id PK
-        string clerkId UK
-        string email
-    }
-    ApprovalRequest {
-        string id PK
-        string title
-        ApprovalStatus status
-        string riskLevel
-        json riskReasons
-        string riskSummary
-        datetime decidedAt
-        string decisionReason
-    }
-    SecurityEvent {
-        string id PK
-        string type
-        string severity
-        json details
-    }
-```
-
----
-
-## Tech Stack
-
-<div align="center">
-
-![Next.js](https://skillicons.dev/icons?i=nextjs)&nbsp;
-![TypeScript](https://skillicons.dev/icons?i=ts)&nbsp;
-![Tailwind](https://skillicons.dev/icons?i=tailwind)&nbsp;
-![Prisma](https://skillicons.dev/icons?i=prisma)&nbsp;
-![PostgreSQL](https://skillicons.dev/icons?i=postgres)
-
-</div>
-
----
-
-## Quick Start
-
-```bash
-cp .env.example .env.local
-# Fill in Clerk keys, Supabase connection strings, MCP secret
-npm install
-npm run db:generate && npm run db:push
-npm run dev
-```
-
-Open [http://localhost:3000/dashboard](http://localhost:3000/dashboard).
-
-## Environment Variables
-
-| Variable | Description |
+| Level | Current signals |
 |---|---|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk publishable key |
-| `CLERK_SECRET_KEY` | Clerk secret key |
-| `DATABASE_URL` | Supabase pooled Postgres connection string |
-| `DIRECT_URL` | Supabase direct Postgres connection string |
-| `MCP_API_SECRET` | Bearer token for `/api/mcp` |
+| `critical` | drop, delete, destroy, wipe, truncate, remove all |
+| `high` | production/live access, credentials, authorization or privilege changes |
+| `medium` | deploy, release, restart, rollback, migration, or other state changes |
+| `low` | no matched state-changing or sensitive signal |
 
----
+Actions at `medium`, `high`, or `critical` require approval. The classifier is intentionally small and auditable; it is not a semantic policy engine.
 
-## MCP API
+## Transactional audit invariant
 
-Submit approval requests programmatically from any AI agent:
+Approval creation and its `approval_submitted` event are written in one database transaction. Approval or rejection and the corresponding audit event are also transactional.
+
+A decision updates only a pending request owned by the current actor. Repeated, cross-user, or stale decisions fail rather than silently overwriting the record.
+
+## Verified behavior
+
+GitHub Actions verifies the project on Node.js 20 with:
+
+- dependency installation and Prisma client generation
+- Vitest unit tests
+- TypeScript type-checking
+- ESLint
+- a production Next.js build
+
+The tests cover risk classification, per-user list isolation, transactional submission, pending-only decisions, ownership checks, and audit-event creation.
+
+## Architecture
+
+- `src/lib/risk-classifier.ts`: deterministic action classification
+- `src/lib/approvals.ts`: approval lifecycle and transactional audit writes
+- `src/app/dashboard`: approval queue and audit history
+- `src/app/api/mcp/route.ts`: bearer-authenticated tool-style HTTP endpoint
+- `prisma/schema.prisma`: PostgreSQL users, requests, and security events
+
+The `/api/mcp` route uses tool-shaped JSON over HTTP. It is not a full Model Context Protocol transport implementation.
+
+## Tool-style HTTP API
+
+Set `MCP_API_SECRET`, then submit a request:
 
 ```bash
-curl -s http://localhost:3000/api/mcp \
+curl -X POST http://localhost:3000/api/mcp \
   -H "Authorization: Bearer $MCP_API_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
     "tool": "approvals.create",
     "input": {
       "title": "Restart production worker",
-      "description": "Agent wants to restart the live billing worker",
-      "actor": { "id": "clerk_user_id", "email": "user@example.com" }
+      "description": "Restart the live billing worker",
+      "actor": {
+        "id": "clerk_user_id",
+        "email": "user@example.com"
+      }
     }
   }'
 ```
 
-Response includes `riskLevel`, `riskReasons`, and the approval URL.
+Supported tools:
 
----
+- `approvals.list`: list the current actor's recent requests
+- `approvals.create`: classify and create a pending request
+- `approvals.decide`: approve or reject a pending request owned by the actor
 
-## Demo Flow
+Responses use `{ "ok": true, "result": ... }` on success. The create response returns the stored approval object, including status and risk fields; it does not generate an approval URL.
 
-1. Sign in at `/dashboard`
-2. Submit `Drop production database` — action receives **critical** risk classification automatically
-3. Review risk reasons and summary in the pending queue
-4. Add an optional decision note, then approve or reject
-5. Audit log shows `approval_submitted` → `approval_approved` or `approval_rejected`
+## Local development
 
----
+Requirements:
 
-## Project Structure
-
-```
-src/
-  app/
-    dashboard/          # Approval queue + audit log
-    (auth)/             # Clerk sign-in / sign-up
-    api/mcp/            # MCP REST endpoint
-  lib/
-    risk-classifier.ts  # Deterministic risk classification
-    analytics.ts        # Security event persistence
-    db.ts               # Prisma singleton
-prisma/
-  schema.prisma         # User, ApprovalRequest, SecurityEvent
-```
-
----
-
-## Development Scripts
+- Node.js 20
+- PostgreSQL, including Neon-compatible connection strings
+- Clerk application credentials
 
 ```bash
-npm run dev           # Start dev server
-npm run build         # Production build
-npm run typecheck     # TypeScript check
-npm run lint          # ESLint
-npm run db:generate   # Regenerate Prisma client
-npm run db:push       # Push schema to DB
-npm test              # Vitest unit tests
+git clone https://github.com/pappdavid/approveops.git
+cd approveops
+cp .env.example .env.local
+npm ci
+npm run db:generate:ci
+npm run db:push
+npm run dev
 ```
+
+Environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk browser key |
+| `CLERK_SECRET_KEY` | Clerk server key |
+| `DATABASE_URL` | PostgreSQL pooled connection string |
+| `DIRECT_URL` | PostgreSQL direct connection string |
+| `MCP_API_SECRET` | Bearer secret for the tool-style HTTP endpoint |
+
+## Development commands
+
+```bash
+npm test
+npm run typecheck
+npm run lint
+npm run build
+```
+
+## Current limitations
+
+- the caller must enforce the approval result around the external action
+- the current queue is owner-scoped rather than a multi-reviewer organization workflow
+- classification is deterministic keyword matching, not semantic policy evaluation
+- the HTTP endpoint is tool-shaped, not full MCP transport
+- production use still requires authentication design, reviewer roles, expiry, notifications, and operational monitoring
