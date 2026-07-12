@@ -39,10 +39,27 @@ jobs:
 
       - name: Production build
         run: npm run build
-        env:
+        env: &runtime-env
           SKIP_ENV_VALIDATION: "1"
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_placeholder"
           CLERK_SECRET_KEY: "sk_test_placeholder"
           DATABASE_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
           DIRECT_URL: "postgresql://placeholder:placeholder@localhost/placeholder"
           OPENAI_API_KEY: "sk-placeholder"
+
+      - name: Production runtime smoke test
+        env: *runtime-env
+        run: |
+          npm start -- -p 3100 > /tmp/app.log 2>&1 &
+          APP_PID=$!
+          trap 'kill "$APP_PID" 2>/dev/null || true; cat /tmp/app.log' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3100/api/mcp > /tmp/mcp.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent http://127.0.0.1:3100/api/mcp > /tmp/mcp.json
+          node -e "const fs=require('fs'); const body=JSON.parse(fs.readFileSync('/tmp/mcp.json','utf8')); if (!Array.isArray(body.tools) || body.tools.length === 0) throw new Error('Expected a nonempty tools manifest');"
