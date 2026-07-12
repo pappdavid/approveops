@@ -13,18 +13,23 @@ export const CreateApprovalRequestSchema = z.object({
 
 export type CreateApprovalRequestInput = z.infer<typeof CreateApprovalRequestSchema>;
 
+type ApprovalTransaction = Pick<Prisma.TransactionClient, "approvalRequest" | "securityEvent">;
+
 function auditSeverityForRisk(riskLevel: string): "low" | "medium" | "high" | "critical" {
   if (riskLevel === "critical" || riskLevel === "high" || riskLevel === "medium") return riskLevel;
   return "low";
 }
 
-async function recordApprovalAuditEvent(params: {
-  type: "approval_submitted" | "approval_approved" | "approval_rejected";
-  userId: string;
-  severity: "low" | "medium" | "high" | "critical";
-  details: Prisma.InputJsonValue;
-}) {
-  await prisma.securityEvent.create({
+async function recordApprovalAuditEvent(
+  db: ApprovalTransaction,
+  params: {
+    type: "approval_submitted" | "approval_approved" | "approval_rejected";
+    userId: string;
+    severity: "low" | "medium" | "high" | "critical";
+    details: Prisma.InputJsonValue;
+  }
+) {
+  await db.securityEvent.create({
     data: {
       type: params.type,
       severity: params.severity,
@@ -57,33 +62,35 @@ export async function createApprovalRequest(params: {
     description: input.description,
   });
 
-  const approval = await prisma.approvalRequest.create({
-    data: {
-      title: input.title,
-      description: input.description,
-      metadata: input.metadata as Prisma.InputJsonValue | undefined,
-      riskLevel: risk.riskLevel,
-      riskReasons: risk.reasons as Prisma.InputJsonValue,
-      riskSummary: risk.summary,
-      createdById: user.id,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const approval = await tx.approvalRequest.create({
+      data: {
+        title: input.title,
+        description: input.description,
+        metadata: input.metadata as Prisma.InputJsonValue | undefined,
+        riskLevel: risk.riskLevel,
+        riskReasons: risk.reasons as Prisma.InputJsonValue,
+        riskSummary: risk.summary,
+        createdById: user.id,
+      },
+    });
 
-  await recordApprovalAuditEvent({
-    type: "approval_submitted",
-    userId: user.id,
-    severity: auditSeverityForRisk(risk.riskLevel),
-    details: {
-      approvalRequestId: approval.id,
-      title: approval.title,
-      status: approval.status,
-      riskLevel: risk.riskLevel,
-      riskReasons: risk.reasons,
-      requiresApproval: risk.requiresApproval,
-    },
-  });
+    await recordApprovalAuditEvent(tx, {
+      type: "approval_submitted",
+      userId: user.id,
+      severity: auditSeverityForRisk(risk.riskLevel),
+      details: {
+        approvalRequestId: approval.id,
+        title: approval.title,
+        status: approval.status,
+        riskLevel: risk.riskLevel,
+        riskReasons: risk.reasons,
+        requiresApproval: risk.requiresApproval,
+      },
+    });
 
-  return approval;
+    return approval;
+  });
 }
 
 export async function listApprovalRequests(params: { clerkUserId: string }) {
@@ -115,37 +122,39 @@ export async function decideApprovalRequest(params: {
 
   const nextStatus: ApprovalStatus = input.decision === "approve" ? "APPROVED" : "REJECTED";
 
-  const updated = await prisma.approvalRequest.updateMany({
-    where: { id: input.requestId, status: "PENDING", createdById: decidingUser.id },
-    data: {
-      status: nextStatus,
-      decidedAt: new Date(),
-      decidedById: decidingUser.id,
-      decisionReason: input.reason,
-    },
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.approvalRequest.updateMany({
+      where: { id: input.requestId, status: "PENDING", createdById: decidingUser.id },
+      data: {
+        status: nextStatus,
+        decidedAt: new Date(),
+        decidedById: decidingUser.id,
+        decisionReason: input.reason,
+      },
+    });
+
+    if (updated.count === 0) {
+      throw new Error("Approval request not found or already decided.");
+    }
+
+    const approval = await tx.approvalRequest.findFirstOrThrow({
+      where: { id: input.requestId, createdById: decidingUser.id },
+    });
+
+    await recordApprovalAuditEvent(tx, {
+      type: input.decision === "approve" ? "approval_approved" : "approval_rejected",
+      userId: decidingUser.id,
+      severity: auditSeverityForRisk(approval.riskLevel),
+      details: {
+        approvalRequestId: approval.id,
+        title: approval.title,
+        decision: input.decision,
+        status: approval.status,
+        reason: input.reason ?? null,
+        riskLevel: approval.riskLevel,
+      },
+    });
+
+    return approval;
   });
-
-  if (updated.count === 0) {
-    throw new Error("Approval request not found or already decided.");
-  }
-
-  const approval = await prisma.approvalRequest.findFirstOrThrow({
-    where: { id: input.requestId, createdById: decidingUser.id },
-  });
-
-  await recordApprovalAuditEvent({
-    type: input.decision === "approve" ? "approval_approved" : "approval_rejected",
-    userId: decidingUser.id,
-    severity: auditSeverityForRisk(approval.riskLevel),
-    details: {
-      approvalRequestId: approval.id,
-      title: approval.title,
-      decision: input.decision,
-      status: approval.status,
-      reason: input.reason ?? null,
-      riskLevel: approval.riskLevel,
-    },
-  });
-
-  return approval;
 }

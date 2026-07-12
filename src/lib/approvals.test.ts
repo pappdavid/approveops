@@ -8,6 +8,7 @@ import {
 } from "./approvals";
 
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   approvalRequest: {
     create: vi.fn(),
     findMany: vi.fn(),
@@ -33,10 +34,17 @@ vi.mock("./users", () => ({
 describe("approval lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(
+      async (operation: (client: typeof prismaMock) => Promise<unknown>) => operation(prismaMock)
+    );
   });
 
-  it("classifies and persists risk details when an agent action is submitted", async () => {
-    prismaMock.approvalRequest.create.mockResolvedValue({ id: "approval_1" });
+  it("classifies and transactionally persists risk details with its audit event", async () => {
+    prismaMock.approvalRequest.create.mockResolvedValue({
+      id: "approval_1",
+      title: "Drop production database",
+      status: "PENDING",
+    });
 
     await createApprovalRequest({
       clerkUser: { id: "user_1", email: "user@example.com" },
@@ -46,6 +54,7 @@ describe("approval lifecycle", () => {
       },
     });
 
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
     expect(prismaMock.approvalRequest.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         createdById: "db_user_1",
@@ -92,10 +101,11 @@ describe("approval lifecycle", () => {
     );
   });
 
-  it("decides only pending approvals owned by the current user and records an audit event", async () => {
+  it("transactionally decides only pending approvals owned by the current user", async () => {
     prismaMock.approvalRequest.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.approvalRequest.findFirstOrThrow.mockResolvedValue({
       id: "approval_1",
+      title: "Deploy service",
       status: "APPROVED",
       riskLevel: "high",
     });
@@ -105,6 +115,7 @@ describe("approval lifecycle", () => {
       input: { requestId: "approval_1", decision: "approve", reason: "Matches deploy window" },
     });
 
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
     expect(prismaMock.approvalRequest.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "approval_1", status: "PENDING", createdById: "db_user_1" },
