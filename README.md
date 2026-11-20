@@ -4,7 +4,7 @@
 
 **Human approval queue and deterministic risk-classification prototype for agent actions**
 
-[Live demo](https://approveops.vercel.app)
+(hosted demo retired)
 
 </div>
 
